@@ -9,17 +9,8 @@ import {
 import { Switch } from "@/components/motion/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { RangeSlider } from "@/components/motion/range-slider";
-import {
-  activeEqualizerPreset,
-  EQUALIZER_BANDS_HZ,
-  EQUALIZER_MAX_DB,
-  EQUALIZER_PRESETS,
-  isEqualizerFlat,
-  setEqualizer,
-  setEqualizerEnabled,
-  useEqualizer,
-  useEqualizerEnabled,
-} from "../settings/equalizer";
+import { setEqualizerEnabled, useEqualizerEnabled } from "../settings/equalizer";
+import { EqualizerPanel } from "../components/Equalizer";
 import {
   MAX_CROSSFADE_SEC,
   setCrossfadeSec,
@@ -41,6 +32,7 @@ import {
 import {
   BugIcon,
   DownloadIcon,
+  EqualizerIcon,
   FolderAddIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -259,113 +251,34 @@ function formatSessionAge(confirmedAt: number | null): string {
 const SETTINGS_FIELD =
   "min-w-0 rounded-lg bg-background px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-inset focus:ring-ring/60";
 
-/**
- * The ten-band equaliser.
- *
- * A component of its own rather than a run of `SettingRow`s because the bands are one control,
- * not eleven: they share a scale, a reset and a set of presets, and reading one slider only
- * means anything next to its neighbours.
- *
- * Sliders are horizontal, stacked. The usual picture of an equaliser is vertical, but that would
- * mean a second slider component built to be rotated, and the frequency and the gain read more
- * clearly written out than inferred from a bar's height.
- *
- * The switch is a bypass, not a reset — it never touches the stored curve, only whether Rust is
- * currently told to apply it. See `setEqualizerEnabled`.
- */
+/** The equaliser card. The switch is a bypass: off dims the curve but leaves it editable. */
 function EqualizerSettings({ engineMode }: { engineMode: AudioEngineMode }) {
-  const equalizer = useEqualizer();
   const enabled = useEqualizerEnabled();
-  // Only the Rust engine has the samples. A track that fell back to the YouTube player plays
-  // unequalised no matter what these say, which the note below is there to admit.
+  // Only the Rust engine has the samples; the YouTube fallback plays unequalised.
   const available = engineMode === "rust";
-  const flat = isEqualizerFlat(equalizer);
-  const labelId = useId();
-
-  const setBand = (index: number, gain: number) => {
-    const bandsDb = equalizer.bandsDb.slice();
-    bandsDb[index] = gain;
-    setEqualizer({ ...equalizer, bandsDb });
-  };
-
-  const activePreset = activeEqualizerPreset(equalizer);
 
   return (
-    <div className={cn("flex flex-col gap-3 pt-1", !available && "opacity-50")}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col gap-0.5">
-          <span id={labelId} className="text-sm font-medium text-foreground">
-            Equaliser
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {available
-              ? enabled
-                ? flat
-                  ? "Flat"
-                  : `${equalizer.preampDb > 0 ? "+" : ""}${equalizer.preampDb} dB preamp`
-                : "Off"
-              : "Needs the Rust playback method"}
-          </span>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={setEqualizerEnabled}
-          disabled={!available}
-          aria-labelledby={labelId}
-        />
-      </div>
-
-      {/*
-        * Dimmed, not disabled: the curve is still worth shaping while off, the same way a
-        * hardware EQ's sliders keep moving with the bypass switch flipped — it is what makes
-        * flipping it back on show the shape you already built instead of the flat one it was
-        * silently holding underneath.
-        */}
-      <div className={cn("flex flex-col gap-3", !enabled && "opacity-60")}>
-        <div className="flex flex-wrap gap-2">
-          {EQUALIZER_PRESETS.map((preset) => (
-            <button
-              key={preset.name}
-              type="button"
-              disabled={!available}
-              onClick={() => setEqualizer(preset.settings)}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                activePreset?.name === preset.name
-                  ? "bg-primary text-primary-foreground"
-                  : "text-foreground hover:bg-card",
-              )}
-            >
-              {preset.name}
-            </button>
-          ))}
-        </div>
-
-        <EqualizerBand
-          label="Preamp"
-          value={equalizer.preampDb}
-          disabled={!available}
-          onChange={(preampDb) => setEqualizer({ ...equalizer, preampDb })}
-        />
-
-        <div className="h-px bg-border" />
-
-        {EQUALIZER_BANDS_HZ.map((hz, index) => (
-          <EqualizerBand
-            key={hz}
-            label={hz >= 1000 ? `${hz / 1000}k` : String(hz)}
-            value={equalizer.bandsDb[index]}
+    <section className={SETTINGS_CARD} aria-labelledby="equalizer-settings-title">
+      <SettingsCardHeader
+        title="Equaliser"
+        titleId="equalizer-settings-title"
+        icon={<EqualizerIcon size={18} aria-hidden="true" />}
+        description={
+          available
+            ? "Ten bands, shaped live on the track that is playing."
+            : "Needs the Rust playback method."
+        }
+        status={
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEqualizerEnabled}
             disabled={!available}
-            onChange={(gain) => setBand(index, gain)}
+            aria-labelledby="equalizer-settings-title"
           />
-        ))}
-      </div>
-
-      <p className="px-1 text-xs text-muted-foreground">
-        Applies immediately, to the track playing. A limiter sits after the bands, so a heavy
-        boost is held back rather than clipped — lower the preamp to hear the difference instead.
-      </p>
-    </div>
+        }
+      />
+      <EqualizerPanel disabled={!available} />
+    </section>
   );
 }
 
@@ -421,41 +334,6 @@ function OutputDeviceSetting({ engineMode }: { engineMode: AudioEngineMode }) {
         </Select>
       )}
     </SettingRow>
-  );
-}
-
-function EqualizerBand({
-  label,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-        {label}
-      </span>
-      <RangeSlider
-        className="min-w-0 flex-1"
-        value={value}
-        min={-EQUALIZER_MAX_DB}
-        max={EQUALIZER_MAX_DB}
-        step={1}
-        showTicks={false}
-        disabled={disabled}
-        onValueChange={onChange}
-        aria-label={`${label} gain in decibels`}
-      />
-      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-        {value > 0 ? "+" : ""}
-        {value} dB
-      </span>
-    </div>
   );
 }
 
@@ -2181,8 +2059,6 @@ export function SettingsPage({
 
             <OutputDeviceSetting engineMode={audioEngineMode} />
 
-            <EqualizerSettings engineMode={audioEngineMode} />
-
             <SettingToggle
               title="Resolve streams as your account"
               description="Attaches your session when resolving a track — required for Premium bitrates. Downloads always resolve anonymously."
@@ -2202,6 +2078,8 @@ export function SettingsPage({
               }}
             />
           </section>
+
+          <EqualizerSettings engineMode={audioEngineMode} />
 
           <section className={SETTINGS_CARD} aria-labelledby="playback-settings-title">
             <SettingsCardHeader
